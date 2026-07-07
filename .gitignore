@@ -1,0 +1,12 @@
+# Raw chemical libraries and generated ligand files — too large for git
+*.sdf
+prepped_ligands/
+docking_results/
+prep_failures.log
+empty_ligands.txt
+ligand_index*.txt
+
+# System/editor junk
+.DS_Store
+__pycache__/
+*.pyc

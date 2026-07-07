@@ -1,0 +1,11 @@
+#!/bin/bash
+for model in model_01 model_02 model_05 model_11 model_19; do
+    echo "Docking ChemDiv library (11269 ligands) against ${model}..."
+    /home/s2831761/bin/udp \
+        --receptor receptors/${model}.pdbqt \
+        --ligand_index /home/s2831761/phase2/ligand_index.txt \
+        --center_x 24.64 --center_y 15.5 --center_z -11.43 \
+        --size_x 36 --size_y 28 --size_z 25 \
+        --search_mode balance \
+        --dir /home/s2831761/phase2/docking_results/${model}
+done

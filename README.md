@@ -21,3 +21,11 @@ are excluded (see `.gitignore`) as these are large generated datasets
 original library files, which are stored on the lab GPU workstation (atlas).
 
 ## 
+
+## Interaction fingerprint analysis (top 50 hits)
+Real, geometry-validated protein-ligand interactions (H-bonds, hydrophobic
+contacts, pi-stacking) were computed for the top 50 overall Phase 2 hits
+using ProLIF (Bouysset & Fiorucci, 2021), following an earlier attempt with
+PLIP that was abandoned due to unresolved OpenBabel-Python dependency
+issues in the compute environment. See phase2/consensus_hotspot_by_type.csv
+for the aggregated residue-level interaction fingerprint.

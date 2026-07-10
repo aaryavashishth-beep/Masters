@@ -29,3 +29,9 @@ using ProLIF (Bouysset & Fiorucci, 2021), following an earlier attempt with
 PLIP that was abandoned due to unresolved OpenBabel-Python dependency
 issues in the compute environment. See phase2/consensus_hotspot_by_type.csv
 for the aggregated residue-level interaction fingerprint.
+
+## Note on phase2/ vs phase2_2/
+`phase2/` contains the original Phase 2 run, which was found to include
+at least one docked pose with an invalid 3D conformer (see commit history).
+`phase2_2/` is the corrected rerun and should be treated as the current,
+trustworthy result set.

@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <script type="text/javascript" src="https://unpkg.com/vis-network@9.0.4/dist/vis-network.min.js"></script>
+    <link href="https://unpkg.com/vis-network@9.0.4/dist/dist/vis-network.min.css" rel="stylesheet" type="text/css" />
+    <style type="text/css">
+        body {
+    padding: 0;
+    margin: 0;
+    background: #fff;
+}
+.legend-btn.residues.disabled {
+    background: #b4b4b4 !important;
+    color: #555 !important;
+}
+.legend-btn.interactions.disabled {
+    border-color: #b4b4b4 !important;
+    color: #555 !important;
+}
+
+    </style>
+</head>
+<body>
+    <div id="mynetwork"></div>
+    <div id="networklegend"></div>
+    <script type="text/javascript">
+        /**
+ * ProLIF Ligand Interaction Network Visualization
+ *
+ * JavaScript for rendering the ligand–interaction network,
+ * used by network.py to make an interactive graph.
+ */
+
+// Main function to draw the network graph using vis-network
+// _id: DOM element ID where the network will be rendered
+// nodes: array of node objects
+// edges: array of edge objects
+// options: network configuration options
+function drawGraph(_id, nodes, edges, options) {
+    // get the container element by ID
+    var container = document.getElementById(_id);
+
+    // wrap nodes and edges in vis.DataSet for dynamic updates
+    nodes = new vis.DataSet(nodes);
+    edges = new vis.DataSet(edges);
+
+    // prepare data object for the network
+    var data = { nodes: nodes, edges: edges };
+
+    // instantiate the network
+    var network = new vis.Network(container, data, options);
+
+    // once the graph has stabilized, disable physics to lock layout
+    network.on("stabilizationIterationsDone", function () {
+        network.setOptions({ physics: false });
+    });
+
+    return network;
+}
+
+// Function to create and attach an interactive legend
+// legendId: DOM element ID for the legend container
+// buttons: array of legend button definitions (label, group, color)
+function createLegend(legendId, buttons) {
+    var legend = document.getElementById(legendId);
+
+    // separate containers for residue-type and interaction-type buttons
+    var div_residues = document.createElement('div');
+    var div_interactions = document.createElement('div');
+    var disabled = [];  // track which labels are currently disabled
+
+    // callback to handle click events on legend buttons
+    var legend_callback = function() {
+        // toggle disabled state on the button
+        this.classList.toggle("disabled");
+        var hide = this.classList.contains("disabled");
+        var show = !hide;
+        var btn_label = this.innerHTML;
+
+        // maintain disabled list for filtering logic
+        if (hide) {
+            disabled.push(btn_label);
+        } else {
+            disabled = disabled.filter(x => x !== btn_label);
+        }
+
+        var node_update = [], edge_update = [];
+
+        // if the button belongs to residue types
+        if (this.classList.contains("residues")) {
+            nodes.forEach((node) => {
+                if (node.residue_type === btn_label) {
+                    if (hide && !node.hidden) {
+                        // hide node when its residue type is disabled
+                        node.hidden = true;
+                        node_update.push(node);
+                    } else if (show && node.hidden) {
+                        // show node only if it still has at least one visible edge
+                        var num_edges_active = edges
+                            .filter(x => x.to === node.id)
+                            .map(x => !x.hidden)
+                            .filter(Boolean)
+                            .length;
+                        if (num_edges_active > 0) {
+                            node.hidden = false;
+                            node_update.push(node);
+                        }
+                    }
+                } else if (btn_label === "Water") {
+                    // hide residues only shown for water bridge
+                    res_edges = edges.filter(x => x.to === node.id);
+                    water_res_edges = res_edges.filter(
+                        x => x.components === "water_protein"
+                    );
+                    if (
+                        (water_res_edges.length)
+                        && (water_res_edges.length == res_edges.length)
+                    ) {
+                        node.hidden = hide;
+                        water_res_edges.forEach((edge) => {
+                            edge.hidden = hide;
+                            edge_update.push(edge);
+                        });
+                        node_update.push(node);
+                    }
+                }
+            });
+        } else {
+            // button belongs to interaction types
+            edges.forEach((edge) => {
+                if (edge.interaction_type === btn_label) {
+                    // toggle edge hidden property
+                    edge.hidden = hide;
+                    edge_update.push(edge);
+
+                    // count remaining visible edges for the target node
+                    var num_edges_active = edges
+                        .filter(x => x.to === edge.to && !x.hidden)
+                        .length;
+
+                    // find index of the target node
+                    var ix = nodes.findIndex(x => x.id === edge.to);
+
+                    // only adjust node if its residue type is not disabled
+                    if (!disabled.includes(nodes[ix].residue_type)) {
+                        if (hide && num_edges_active === 0) {
+                            // hide node if no visible edges remain
+                            nodes[ix].hidden = true;
+                            node_update.push(nodes[ix]);
+                        } else if (show && num_edges_active > 0) {
+                            // show node if at least one edge is visible
+                            nodes[ix].hidden = false;
+                            node_update.push(nodes[ix]);
+                        }
+                    }
+                }
+            });
+        }
+        // apply batch updates for both nodes and edges
+        ifp.body.data.nodes.update(node_update);
+        ifp.body.data.edges.update(edge_update);
+    };
+    
+    // build and style buttons for the legend
+    buttons.forEach(function(v) {
+        var div = (v.group === "residues") ? div_residues : div_interactions;
+        var border = (v.group === "interactions") ? "3px dashed " + v.color : "none";
+        var bg = (v.group === "residues") ? v.color : "white";
+
+        var button = document.createElement('button');
+        button.classList.add("legend-btn", v.group);
+        button.innerHTML = v.label;
+
+        Object.assign(button.style, {
+            cursor: "pointer",
+            backgroundColor: bg,
+            color: v.fontcolor,
+            border: border,
+            borderRadius: "5px",
+            padding: "5px",
+            margin: "5px",
+            font: "14px 'Arial', sans-serif",
+        });
+        button.onclick = legend_callback;
+        div.appendChild(button);
+    });
+
+    // attach the two button groups to the legend container
+    legend.appendChild(div_residues);
+    legend.appendChild(div_interactions);
+}
+
+    </script>
+    <script type="text/javascript">
+        // Initialize the network
+        var ifp, legend, nodes, edges, legend_buttons;
+        nodes = [{"id": "LYS181.A", "label": "LYS181.A", "color": "#5979e3", "font": {"color": "black"}, "shape": "box", "borderWidth": 0, "physics": true, "mass": 2, "group": "protein", "residue_type": "Basic"}, {"id": "ARG197.A", "label": "ARG197.A", "color": "#5979e3", "font": {"color": "black"}, "shape": "box", "borderWidth": 0, "physics": true, "mass": 2, "group": "protein", "residue_type": "Basic"}, {"id": "GLN134.A", "label": "GLN134.A", "color": "#59bee3", "font": {"color": "black"}, "shape": "box", "borderWidth": 0, "physics": true, "mass": 2, "group": "protein", "residue_type": "Polar"}, {"id": "ASP105.A", "label": "ASP105.A", "color": "#e35959", "font": {"color": "black"}, "shape": "box", "borderWidth": 0, "physics": true, "mass": 2, "group": "protein", "residue_type": "Acidic"}, {"id": "LYS136.A", "label": "LYS136.A", "color": "#5979e3", "font": {"color": "black"}, "shape": "box", "borderWidth": 0, "physics": true, "mass": 2, "group": "protein", "residue_type": "Basic"}, {"id": "PHE149.A", "label": "PHE149.A", "color": "#b559e3", "font": {"color": "black"}, "shape": "box", "borderWidth": 0, "physics": true, "mass": 2, "group": "protein", "residue_type": "Aromatic"}, {"id": "LYS145.A", "label": "LYS145.A", "color": "#5979e3", "font": {"color": "black"}, "shape": "box", "borderWidth": 0, "physics": true, "mass": 2, "group": "protein", "residue_type": "Basic"}, {"id": "PHE147.A", "label": "PHE147.A", "color": "#b559e3", "font": {"color": "black"}, "shape": "box", "borderWidth": 0, "physics": true, "mass": 2, "group": "protein", "residue_type": "Aromatic"}, {"id": "centroid(UNK0, PHE147.A, PiStacking)", "x": 192.58044487457826, "y": -7.566028985130942, "shape": "text", "label": " ", "fixed": true, "physics": false, "group": "ligand"}, {"id": "centroid(UNK0, PHE149.A, PiStacking)", "x": 192.58044487457826, "y": -7.566028985130942, "shape": "text", "label": " ", "fixed": true, "physics": false, "group": "ligand"}, {"label": "N", "shape": "circle", "color": "white", "font": {"color": "blue"}, "id": 0, "x": -16.777913229497102, "y": 8.837564888339589, "fixed": true, "group": "ligand", "borderWidth": 0}, {"label": " ", "shape": "dot", "color": "black", "size": 5.6000000000000005, "id": 1, "x": -50.86004861704815, "y": -31.095604875963364, "fixed": true, "group": "ligand", "borderWidth": 0}, {"label": " ", "shape": "dot", "color": "black", "size": 5.6000000000000005, "id": 2, "x": -44.224655510816966, "y": 53.591629934353094, "fixed": true, "group": "ligand", "borderWidth": 0}, {"label": " ", "shape": "dot", "color": "black", "size": 5.6000000000000005, "id": 3, "x": -99.37070897705014, "y": -11.021596022808707, "fixed": true, "group": "ligand", "borderWidth": 0}, {"label": " ", "shape": "dot", "color": "black", "size": 5.6000000000000005, "id": 4, "x": -95.26981050868251, "y": 41.31799350321011, "fixed": true, "group": "ligand", "borderWidth": 0}, {"label": " ", "shape": "dot", "color": "black", "size": 5.6000000000000005, "id": 5, "x": -146.74857236441622, "y": -33.639908533871086, "fixed": true, "group": "ligand", "borderWidth": 0}, {"label": " ", "shape": "dot", "color": "black", "size": 5.6000000000000005, "id": 6, "x": 35.561676296521725, "y": 4.736666419971976, "fixed": true, "group": "ligand", "borderWidth": 0}, {"label": " ", "shape": "dot", "color": "black", "size": 5.6000000000000005, "id": 7, "x": -190.0255372834146, "y": -3.9186315189146095, "fixed": true, "group": "ligand", "borderWidth": 0}, {"label": " ", "shape": "dot", "color": "black", "size": 5.6000000000000005, "id": 8, "x": -237.40340067078063, "y": -26.536944029976972, "fixed": true, "group": "ligand", "borderWidth": 0}, {"label": " ", "shape": "dot", "color": "black", "size": 5.6000000000000005, "id": 9, "x": -138.54677542768096, "y": 71.03927051816657, "fixed": true, "group": "ligand", "borderWidth": 0}, {"label": "O", "shape": "circle", "color": "white", "font": {"color": "red"}, "id": 10, "x": -38.58641218590517, "y": -82.14075987382891, "fixed": true, "group": "ligand", "borderWidth": 0}, {"label": "O", "shape": "circle", "color": "white", "font": {"color": "red"}, "id": 11, "x": -24.15064665766231, "y": 102.10229029435509, "fixed": true, "group": "ligand", "borderWidth": 0}, {"label": " ", "shape": "dot", "color": "black", "size": 5.6000000000000005, "id": 12, "x": -185.92463881504702, "y": 48.42095800710421, "fixed": true, "group": "ligand", "borderWidth": 0}, {"label": "O", "shape": "circle", "color": "white", "font": {"color": "red"}, "id": 13, "x": -280.68036558977906, "y": 3.184332984979492, "fixed": true, "group": "ligand", "borderWidth": 0}, {"label": " ", "shape": "dot", "color": "black", "size": 5.6000000000000005, "id": 14, "x": 87.90126582254055, "y": 0.6357679516043546, "fixed": true, "group": "ligand", "borderWidth": 0}, {"label": "OH", "shape": "ellipse", "color": "white", "font": {"color": "red"}, "id": 15, "x": -241.50429913914826, "y": -78.87653355599582, "fixed": true, "group": "ligand", "borderWidth": 0}, {"label": " ", "shape": "dot", "color": "black", "size": 5.6000000000000005, "id": 16, "x": 140.2408553485594, "y": -3.4651305167632733, "fixed": true, "group": "ligand", "borderWidth": 0}, {"label": " ", "shape": "dot", "color": "black", "size": 5.6000000000000005, "id": 17, "x": 162.85916785962178, "y": -50.84299390412937, "fixed": true, "group": "ligand", "borderWidth": 0}, {"label": " ", "shape": "dot", "color": "black", "size": 5.6000000000000005, "id": 18, "x": 169.962132363516, "y": 39.811834402235114, "fixed": true, "group": "ligand", "borderWidth": 0}, {"label": " ", "shape": "dot", "color": "black", "size": 5.6000000000000005, "id": 19, "x": 222.3017218895348, "y": 35.710935933867475, "fixed": true, "group": "ligand", "borderWidth": 0}, {"label": " ", "shape": "dot", "color": "black", "size": 5.6000000000000005, "id": 20, "x": 215.1987573856406, "y": -54.94389237249701, "fixed": true, "group": "ligand", "borderWidth": 0}, {"label": " ", "shape": "dot", "color": "black", "size": 5.6000000000000005, "id": 21, "x": 244.92003440059713, "y": -11.666927453498587, "fixed": true, "group": "ligand", "borderWidth": 0}, {"id": 8117311944880911289, "x": -148.5580373653012, "y": -29.849679462881802, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": -6042746764057554174, "x": -101.18017397793513, "y": -7.231366951819423, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": 7916324212393651932, "x": -144.93910736353124, "y": -37.43013760486037, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": 6955806410066298619, "x": -97.56124397616516, "y": -14.81182509379799, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": -6668256891653848540, "x": -187.64783512221808, "y": -0.456474325394737, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": -8692946681497711145, "x": -144.3708702032197, "y": -30.177751340351215, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": -8963607819393837164, "x": -192.4032394446111, "y": -7.380788712434482, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": -5833997837783587303, "x": -149.12627452561273, "y": -37.10206572739096, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": -8564523092513725512, "x": -136.16907326648445, "y": 74.50142771168645, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": 3530467249579432723, "x": -92.892108347486, "y": 44.78015069672998, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": -3022429938721272324, "x": -140.92447758887747, "y": 67.5771133246467, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": -4436957833339493300, "x": -97.64751266987902, "y": 37.85583630969024, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": 8892725079631811480, "x": -42.67002458573441, "y": -83.12265078832036, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": 8783194279252275576, "x": -54.9436610168774, "y": -32.077495790454805, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": 3543758826883991936, "x": -34.502799786075926, "y": -81.15886895933747, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": 8321904219669499240, "x": -46.7764362172189, "y": -30.113713961471927, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": -2952906402507205744, "x": -20.269793828862152, "y": 100.49636958610272, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": 6138049261364826279, "x": -40.34380268201681, "y": 51.985709226100724, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": -1690476350430587131, "x": -28.03149948646247, "y": 103.70821100260746, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": 5749428162818316843, "x": -48.105508339617124, "y": 55.197550642605464, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": -5237125191652232734, "x": -187.734103815932, "y": 52.211187078093495, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": -4067021125268465520, "x": -140.35624042856594, "y": 74.82949958915586, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": -9041511661300968594, "x": -184.11517381416203, "y": 44.63072893611493, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": -4915526789274437084, "x": -136.73731042679597, "y": 67.24904144717729, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": -5710503901458303265, "x": -278.30266342858255, "y": 6.646490178499366, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": -8371123685131580161, "x": -235.02569850958412, "y": -23.074786836457097, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": -2480568891604760859, "x": -283.05806775097557, "y": -0.27782420854038214, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": 4100322080370042523, "x": -239.78110283197714, "y": -29.999101223496847, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": -5908163935386045926, "x": 159.0689387886325, "y": -52.65245890501436, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": 6730558262758936542, "x": 136.4506262775701, "y": -5.274595517648262, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": 4177217372630591842, "x": 166.64939693061106, "y": -49.03352890324438, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": 7844683977919954849, "x": 144.03108441954868, "y": -1.6556655158782845, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": 8839157907490512723, "x": 173.42428955703585, "y": 37.43413224103859, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": -9202457995252380277, "x": 143.70301254207925, "y": -5.842832677959799, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": -7141352710847950842, "x": 166.49997516999613, "y": 42.18953656343164, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": 7369766508655581197, "x": 136.77869815503954, "y": -1.0874283555667477, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": 8710444929575121050, "x": 221.9736500120654, "y": 31.523768771785967, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": 158677407116885857, "x": 169.6340604860466, "y": 35.624667240153606, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": 8455930082353323156, "x": 222.6297937670042, "y": 39.89810309594898, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": 8210474181765034713, "x": 170.2902042409854, "y": 43.99900156431662, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": -8609907149858642512, "x": 214.8706855081712, "y": -59.13105953457852, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": 1034867818168464643, "x": 162.53109598215238, "y": -55.03016106621088, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": -6924709333373413707, "x": 215.52682926311, "y": -50.7567252104155, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": 5814608076614589805, "x": 163.18723973709118, "y": -46.655826742047864, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": -364728920271460171, "x": 241.12980532960785, "y": -13.476392454383573, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": 4856224011336339804, "x": 218.51149281854552, "y": 33.90147093298249, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": -2849694923425224733, "x": 248.71026347158642, "y": -9.857462452613602, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": -2244069433424778197, "x": 226.0919509605241, "y": 37.52040093475246, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": -3569022647526914727, "x": -91.082643346601, "y": 40.9899216257407, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": 3916133619578321547, "x": -95.18354181496863, "y": -11.349667900278117, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": -77905358083580669, "x": -99.45697767076402, "y": 41.646065380679524, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": -3589606655755568255, "x": -103.55787613913165, "y": -10.693524145339296, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": 8494698514274671537, "x": -181.73747165296552, "y": 48.092886129634806, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": -8303745732980010819, "x": -185.8383701213331, "y": -4.2467033963840155, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": -3979454871183211935, "x": -190.1118059771285, "y": 48.749029884573616, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": 1819654179607342826, "x": -194.2127044454961, "y": -3.5905596414452035, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": 5422351538376948185, "x": 211.7366001921207, "y": -52.56619021130049, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": -46680099643862656, "x": 241.45787720707727, "y": -9.289225292302065, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": 4517959029725946998, "x": 218.66091457916048, "y": -57.321594533693535, "shape": "text", "label": " ", "fixed": true, "physics": false}, {"id": -1220974245327515125, "x": 248.382191594117, "y": -14.04462961469511, "shape": "text", "label": " ", "fixed": true, "physics": false}];
+        edges = [{"from": 9, "to": "LYS181.A", "title": "Hydrophobic: 4.13\u00c5", "interaction_type": "Hydrophobic", "color": "#59e382", "smooth": {"type": "cubicBezier", "roundness": 0.2}, "dashes": [10], "width": 6, "group": "interaction", "components": "ligand_protein"}, {"from": 19, "to": "LYS145.A", "title": "Hydrophobic: 4.25\u00c5", "interaction_type": "Hydrophobic", "color": "#59e382", "smooth": {"type": "cubicBezier", "roundness": 0.2}, "dashes": [10], "width": 6, "group": "interaction", "components": "ligand_protein"}, {"from": 7, "to": "ASP105.A", "title": "Hydrophobic: 4.31\u00c5", "interaction_type": "Hydrophobic", "color": "#59e382", "smooth": {"type": "cubicBezier", "roundness": 0.2}, "dashes": [10], "width": 6, "group": "interaction", "components": "ligand_protein"}, {"from": 12, "to": "GLN134.A", "title": "Hydrophobic: 3.52\u00c5", "interaction_type": "Hydrophobic", "color": "#59e382", "smooth": {"type": "cubicBezier", "roundness": 0.2}, "dashes": [10], "width": 6, "group": "interaction", "components": "ligand_protein"}, {"from": 5, "to": "LYS136.A", "title": "Hydrophobic: 4.21\u00c5", "interaction_type": "Hydrophobic", "color": "#59e382", "smooth": {"type": "cubicBezier", "roundness": 0.2}, "dashes": [10], "width": 6, "group": "interaction", "components": "ligand_protein"}, {"from": "centroid(UNK0, PHE147.A, PiStacking)", "to": "PHE147.A", "title": "PiStacking: 4.58\u00c5", "interaction_type": "PiStacking", "color": "#b559e3", "smooth": {"type": "cubicBezier", "roundness": 0.2}, "dashes": [10], "width": 6, "group": "interaction", "components": "ligand_protein"}, {"from": 16, "to": "PHE147.A", "title": "Hydrophobic: 4.38\u00c5", "interaction_type": "Hydrophobic", "color": "#59e382", "smooth": {"type": "cubicBezier", "roundness": 0.2}, "dashes": [10], "width": 6, "group": "interaction", "components": "ligand_protein"}, {"from": "centroid(UNK0, PHE149.A, PiStacking)", "to": "PHE149.A", "title": "PiStacking: 5.80\u00c5", "interaction_type": "PiStacking", "color": "#b559e3", "smooth": {"type": "cubicBezier", "roundness": 0.2}, "dashes": [10], "width": 6, "group": "interaction", "components": "ligand_protein"}, {"from": 3, "to": "PHE149.A", "title": "Hydrophobic: 4.49\u00c5", "interaction_type": "Hydrophobic", "color": "#59e382", "smooth": {"type": "cubicBezier", "roundness": 0.2}, "dashes": [10], "width": 6, "group": "interaction", "components": "ligand_protein"}, {"from": 3, "to": "ARG197.A", "title": "Hydrophobic: 3.69\u00c5", "interaction_type": "Hydrophobic", "color": "#59e382", "smooth": {"type": "cubicBezier", "roundness": 0.2}, "dashes": [10], "width": 6, "group": "interaction", "components": "ligand_protein"}, {"from": 1, "to": 0, "color": "black", "physics": false, "group": "ligand", "width": 4}, {"from": 2, "to": 0, "color": "black", "physics": false, "group": "ligand", "width": 4}, {"from": 3, "to": 1, "color": "black", "physics": false, "group": "ligand", "width": 4}, {"from": 4, "to": 2, "color": "black", "physics": false, "group": "ligand", "width": 4}, {"from": 8117311944880911289, "to": -6042746764057554174, "color": "black", "physics": false, "dashes": [10], "group": "ligand", "width": 4}, {"from": 7916324212393651932, "to": 6955806410066298619, "color": "black", "physics": false, "dashes": [10], "group": "ligand", "width": 4}, {"from": 6, "to": 0, "color": "black", "physics": false, "group": "ligand", "width": 4}, {"from": -6668256891653848540, "to": -8692946681497711145, "color": "black", "physics": false, "dashes": [10], "group": "ligand", "width": 4}, {"from": -8963607819393837164, "to": -5833997837783587303, "color": "black", "physics": false, "dashes": [10], "group": "ligand", "width": 4}, {"from": 8, "to": 7, "color": "black", "physics": false, "group": "ligand", "width": 4}, {"from": -8564523092513725512, "to": 3530467249579432723, "color": "black", "physics": false, "dashes": [10], "group": "ligand", "width": 4}, {"from": -3022429938721272324, "to": -4436957833339493300, "color": "black", "physics": false, "dashes": [10], "group": "ligand", "width": 4}, {"from": 8892725079631811480, "to": 8783194279252275576, "color": "black", "physics": false, "dashes": false, "group": "ligand", "width": 4}, {"from": 3543758826883991936, "to": 8321904219669499240, "color": "black", "physics": false, "dashes": false, "group": "ligand", "width": 4}, {"from": -2952906402507205744, "to": 6138049261364826279, "color": "black", "physics": false, "dashes": false, "group": "ligand", "width": 4}, {"from": -1690476350430587131, "to": 5749428162818316843, "color": "black", "physics": false, "dashes": false, "group": "ligand", "width": 4}, {"from": -5237125191652232734, "to": -4067021125268465520, "color": "black", "physics": false, "dashes": [10], "group": "ligand", "width": 4}, {"from": -9041511661300968594, "to": -4915526789274437084, "color": "black", "physics": false, "dashes": [10], "group": "ligand", "width": 4}, {"from": -5710503901458303265, "to": -8371123685131580161, "color": "black", "physics": false, "dashes": false, "group": "ligand", "width": 4}, {"from": -2480568891604760859, "to": 4100322080370042523, "color": "black", "physics": false, "dashes": false, "group": "ligand", "width": 4}, {"from": 14, "to": 6, "color": "black", "physics": false, "group": "ligand", "width": 4}, {"from": 15, "to": 8, "color": "black", "physics": false, "group": "ligand", "width": 4}, {"from": 16, "to": 14, "color": "black", "physics": false, "group": "ligand", "width": 4}, {"from": -5908163935386045926, "to": 6730558262758936542, "color": "black", "physics": false, "dashes": [10], "group": "ligand", "width": 4}, {"from": 4177217372630591842, "to": 7844683977919954849, "color": "black", "physics": false, "dashes": [10], "group": "ligand", "width": 4}, {"from": 8839157907490512723, "to": -9202457995252380277, "color": "black", "physics": false, "dashes": [10], "group": "ligand", "width": 4}, {"from": -7141352710847950842, "to": 7369766508655581197, "color": "black", "physics": false, "dashes": [10], "group": "ligand", "width": 4}, {"from": 8710444929575121050, "to": 158677407116885857, "color": "black", "physics": false, "dashes": [10], "group": "ligand", "width": 4}, {"from": 8455930082353323156, "to": 8210474181765034713, "color": "black", "physics": false, "dashes": [10], "group": "ligand", "width": 4}, {"from": -8609907149858642512, "to": 1034867818168464643, "color": "black", "physics": false, "dashes": [10], "group": "ligand", "width": 4}, {"from": -6924709333373413707, "to": 5814608076614589805, "color": "black", "physics": false, "dashes": [10], "group": "ligand", "width": 4}, {"from": -364728920271460171, "to": 4856224011336339804, "color": "black", "physics": false, "dashes": [10], "group": "ligand", "width": 4}, {"from": -2849694923425224733, "to": -2244069433424778197, "color": "black", "physics": false, "dashes": [10], "group": "ligand", "width": 4}, {"from": -3569022647526914727, "to": 3916133619578321547, "color": "black", "physics": false, "dashes": [10], "group": "ligand", "width": 4}, {"from": -77905358083580669, "to": -3589606655755568255, "color": "black", "physics": false, "dashes": [10], "group": "ligand", "width": 4}, {"from": 8494698514274671537, "to": -8303745732980010819, "color": "black", "physics": false, "dashes": [10], "group": "ligand", "width": 4}, {"from": -3979454871183211935, "to": 1819654179607342826, "color": "black", "physics": false, "dashes": [10], "group": "ligand", "width": 4}, {"from": 5422351538376948185, "to": -46680099643862656, "color": "black", "physics": false, "dashes": [10], "group": "ligand", "width": 4}, {"from": 4517959029725946998, "to": -1220974245327515125, "color": "black", "physics": false, "dashes": [10], "group": "ligand", "width": 4}];
+        ifp = drawGraph('mynetwork', nodes, edges, {"width": "100%", "height": "500px", "nodes": {"font": {"size": 20}}, "physics": {"barnesHut": {"avoidOverlap": 0.8, "springConstant": 0.1}}});
+        
+        // Create the legend
+        createLegend('networklegend', [{"index": 0, "label": "Acidic", "color": "#e35959", "fontcolor": "black", "group": "residues"}, {"index": 1, "label": "Aromatic", "color": "#b559e3", "fontcolor": "black", "group": "residues"}, {"index": 2, "label": "Basic", "color": "#5979e3", "fontcolor": "black", "group": "residues"}, {"index": 3, "label": "Polar", "color": "#59bee3", "fontcolor": "black", "group": "residues"}, {"index": 0, "label": "Hydrophobic", "color": "#59e382", "fontcolor": "black", "group": "interactions"}, {"index": 1, "label": "PiStacking", "color": "#b559e3", "fontcolor": "black", "group": "interactions"}]);
+    </script>
+</body>
+</html>
